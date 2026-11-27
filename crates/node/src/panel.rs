@@ -339,6 +339,8 @@ pub struct TlsInfo {
     pub short_ids: Vec<String>,
     pub xver: u64,
     pub mldsa65_seed: Option<String>,
+    /// Allowed client clock skew in milliseconds; `None` or 0 disables the check (Xray default).
+    pub max_time_diff: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -483,6 +485,7 @@ impl NodeInfo {
             short_ids,
             xver: get_u64(tls_obj, &["xver"]).unwrap_or(0),
             mldsa65_seed: get_str(tls_obj, &["mldsa65Seed", "mldsa65_seed"]),
+            max_time_diff: get_u64(tls_obj, &["max_time_diff", "maxTimeDiff"]),
         };
 
         let decryption = match get_str(obj, &["decryption"]) {

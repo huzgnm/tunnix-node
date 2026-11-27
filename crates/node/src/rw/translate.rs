@@ -244,6 +244,7 @@ fn translate_inbound(
         }
         tls.xver = r.get("xver").and_then(Value::as_u64).unwrap_or(0);
         tls.mldsa65_seed = s(r, "mldsa65Seed").map(str::to_string);
+        tls.max_time_diff = r.get("maxTimeDiff").and_then(Value::as_u64);
     }
 
     let method = s(settings, "method").map(str::to_string);

@@ -327,6 +327,12 @@ fn reality(info: &NodeInfo, protocol: Value, vision: bool) -> Result<Value> {
     if let Some(seed) = &tls.mldsa65_seed {
         target["mldsa65_seed"] = json!(seed);
     }
+    // Xray checks the client clock only when maxTimeDiff is set; the core default is one
+    // minute, which would reject clients with a skewed clock that v2node accepts.
+    target["max_time_diff"] = match tls.max_time_diff {
+        Some(ms) if ms > 0 => json!(ms),
+        _ => Value::Null,
+    };
     let names = if tls.server_names.is_empty() {
         vec![dest_host.to_string()]
     } else {
@@ -598,6 +604,7 @@ mod tests {
         let t = &s["protocol"]["reality_targets"]["www.apple.com"];
         assert_eq!(t["dest"], "www.apple.com:443");
         assert_eq!(t["vision"], true);
+        assert!(t["max_time_diff"].is_null());
         assert_eq!(t["protocol"]["type"], "vless");
         assert_eq!(t["protocol"]["user_id"], ctx.placeholder);
     }
