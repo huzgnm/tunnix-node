@@ -372,7 +372,7 @@ pub struct NodeInfo {
     pub padding_scheme: Vec<String>,
     pub push_interval: Duration,
     pub pull_interval: Duration,
-    /// Bytes; users below are not reported this round.
+    /// Bytes (panel value is KB); users below are not reported this round.
     pub report_min_traffic: u64,
     /// Bytes; users below are left out of the online report.
     pub device_online_min_traffic: u64,
@@ -553,7 +553,8 @@ impl NodeInfo {
             padding_scheme: get_str_list(obj, &["padding_scheme"]),
             push_interval: interval("push_interval"),
             pull_interval: interval("pull_interval"),
-            report_min_traffic: get_u64(base, &["node_report_min_traffic"]).unwrap_or(0),
+            // KB, as in v2node (`mintraffic * 1000`).
+            report_min_traffic: get_u64(base, &["node_report_min_traffic"]).unwrap_or(0) * 1000,
             device_online_min_traffic: get_u64(base, &["device_online_min_traffic"]).unwrap_or(0)
                 * 1000,
             routes,
@@ -588,6 +589,7 @@ mod tests {
         assert_eq!(n.push_interval, Duration::from_secs(30));
         assert_eq!(n.pull_interval, Duration::from_secs(45));
         assert_eq!(n.device_online_min_traffic, 10_000);
+        assert_eq!(n.report_min_traffic, 1_024_000);
     }
 
     #[test]

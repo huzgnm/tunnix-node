@@ -22,6 +22,7 @@ and latency stable under load.
 | [Remnawave](https://github.com/remnawave) | push | Implements the remnawave/node API (mTLS + JWT); the panel sends an Xray config |
 
 Several panel nodes and one Remnawave node can run in the same process.
+Panel developers: see the [panel integration guide](docs/panel-integration.md).
 
 ## Features
 
