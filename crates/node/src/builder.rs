@@ -468,7 +468,7 @@ fn rules(info: &NodeInfo) -> Value {
 fn block_conditions(routes: &[crate::panel::Route]) -> Vec<Value> {
     let mut lists: std::collections::BTreeMap<&'static str, Vec<Value>> = Default::default();
     let skip = |action: &str, m: &str| {
-        warn!("route {action} match {m:?} is not supported; skipped");
+        warn!("route rule ({action}) match {m:?} is not supported; skipped");
     };
     for route in routes {
         let action = route.action.as_str();
@@ -574,7 +574,7 @@ fn push_checked(
     if shoes::tunnix::is_valid_condition(&json!({ key: [value.clone()] })) {
         lists.entry(key).or_default().push(value);
     } else {
-        warn!("route {action} match {m:?} is not valid; skipped");
+        warn!("route rule ({action}) match {m:?} is not valid; skipped");
     }
 }
 
