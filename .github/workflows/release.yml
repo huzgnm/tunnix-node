@@ -84,6 +84,17 @@ jobs:
           tags: |
             ${{ steps.img.outputs.name }}:${{ steps.img.outputs.version }}
             ${{ steps.img.outputs.name }}:latest
+      - name: Smoke test image
+        run: |
+          docker run --rm --platform linux/amd64 ${{ steps.img.outputs.name }}:${{ steps.img.outputs.version }} version
+          docker run --rm --platform linux/arm64 ${{ steps.img.outputs.name }}:${{ steps.img.outputs.version }} version
+      - name: Smoke test archives
+        run: |
+          for a in amd64 arm64; do
+            mkdir -p /tmp/check-$a && tar -xzf dist/tunnix-node-linux-$a.tar.gz -C /tmp/check-$a
+            test -x /tmp/check-$a/tunnix-node
+          done
+          /tmp/check-amd64/tunnix-node version
 
   test:
     runs-on: ubuntu-24.04
