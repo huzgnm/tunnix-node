@@ -1,123 +1,220 @@
 # TunnixNode
 
-Node VPN viết bằng Rust cho panel **XiaoBoard** (wyx2685/v2board), **Xboard**, **V2Board** và **Remnawave**.
-Thay thế v2node / remnanode (Xray/Go): ít RAM hơn, không có bộ dọn rác (GC) nên tốc độ ổn định khi đông người dùng.
+[![Release](https://img.shields.io/github/v/release/huzgnm/tunnix-node)](https://github.com/huzgnm/tunnix-node/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/huzgnm/tunnix-node/release.yml)](https://github.com/huzgnm/tunnix-node/actions)
+[![Docker](https://img.shields.io/badge/ghcr.io-huzgnm%2Ftunnix--node-blue)](https://github.com/huzgnm/tunnix-node/pkgs/container/tunnix-node)
 
-## Tính năng
+TunnixNode is a proxy node backend written in Rust. It connects to a panel, serves the
+panel's users over Xray-compatible protocols, and reports traffic and online devices back.
 
-- Lấy cấu hình node và danh sách user từ panel, tự cập nhật khi panel đổi (không cần khởi động lại).
-- Thêm/xoá user khi đang chạy. User bị xoá/hết hạn bị ngắt kết nối ngay ở lần đồng bộ kế tiếp.
-- Đếm traffic từng user, báo về panel theo `push_interval`. Báo lỗi thì giữ lại và báo lần sau, không mất traffic.
-- Giới hạn tốc độ theo user (`speed_limit`, Mbps) và giới hạn thiết bị (`device_limit`, theo IP).
-- Báo IP online (XiaoBoard, Xboard) và trạng thái máy CPU/RAM/đĩa (Xboard).
-- Chặn sẵn truy cập vào dải IP nội bộ của máy chủ (127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16…).
-- REALITY: SNI lạ hoặc kết nối không có khoá được chuyển sang trang đích như Xray, chống dò quét.
-- Chế độ **Remnawave**: thay thế `remnawave/node` (API mTLS + JWT, nhận cấu hình Xray từ panel).
+It is a drop-in replacement for [v2node](https://github.com/wyx2685/v2node) and
+[remnawave/node](https://github.com/remnawave/node) and works with standard Xray, sing-box and
+Hysteria clients. No Go runtime and no garbage collector are involved, which keeps memory use low
+and latency stable under load.
 
-### Giao thức
+## Supported panels
 
-Đã test chéo với client thật (Xray 26.11.9, sing-box): nhiều user, đếm traffic, giới hạn tốc độ, xoá user là ngắt.
+| Panel | Mode | Notes |
+|---|---|---|
+| [XiaoBoard](https://github.com/wyx2685/v2board) (wyx2685/v2board) | pull | Same API as v2node (`/api/v2/server/config`), device limit, online IPs |
+| [Xboard](https://github.com/cedar2025/Xboard) | pull | Device limit, online IPs, node load status |
+| [V2Board](https://github.com/v2board/v2board) 1.7.x | pull | VMess, Trojan, Shadowsocks |
+| [Remnawave](https://github.com/remnawave) | push | Implements the remnawave/node API (mTLS + JWT); the panel sends an Xray config |
 
-| Giao thức | TCP | UDP |
-|---|:---:|:---:|
-| VLESS (REALITY + Vision, TLS, mã hoá ML-KEM) | ✅ | ✅ |
-| VMess (AEAD) | ✅ | ✅ |
-| Trojan | ✅ | ✅ |
-| Shadowsocks AEAD / 2022 (nhiều user qua EIH) | ✅ | ✅ |
-| Hysteria2 (kể cả obfs `salamander`) | ✅ | ✅ |
-| TUIC v5 | ✅ | ✅ |
-| AnyTLS | ✅ | ✅ |
+Several panel nodes and one Remnawave node can run in the same process.
 
-Kiểu truyền: TCP, WebSocket (cả `?ed=` dữ liệu sớm), gRPC, HTTPUpgrade, XHTTP.
-Chưa hỗ trợ: mKCP, Shadowsocks-2022 ChaCha20 nhiều user, nhà DNS cho ACME ngoài Cloudflare.
+## Features
 
-> Client Xray 26 đã bỏ `allowInsecure`: node dùng chứng chỉ tự ký thì client phải ghim mã băm
-> (`pinnedPeerCertSha256`) hoặc dùng chứng chỉ thật (`cert_mode` http/dns, xem dưới).
+- Multi-user inbounds with live user updates; removed or expired users are disconnected on the next sync.
+- Per-user traffic accounting. Failed reports are retained and retried, so no traffic is lost.
+- Per-user speed limit (`speed_limit`, Mbps) and concurrent device limit (`device_limit`, by IP).
+- Hot reload of node configuration without dropping established connections.
+- REALITY fallback behaves like Xray: unknown SNI and unauthenticated handshakes are relayed to the destination.
+- Built-in outbound filter that blocks private and loopback ranges of the host.
+- ACME certificates (HTTP-01 and Cloudflare DNS-01) with automatic renewal.
+- Static Linux binaries (amd64, arm64) and a multi-arch container image.
 
-### Chứng chỉ TLS (`cert_mode` trên panel)
+## Protocols and transports
 
-| cert_mode | Cách làm |
-|---|---|
-| `http` | Let's Encrypt qua HTTP-01. Cần **cổng 80 mở** lúc xin/gia hạn; nhiều node trên một VPS dùng chung cổng. |
-| `dns` | Let's Encrypt qua DNS-01. Hiện hỗ trợ **Cloudflare**: `provider = cloudflare`, `dns_env = CF_DNS_API_TOKEN=...` (hoặc `CF_API_EMAIL=...,CF_API_KEY=...`). |
-| `file` | Dùng `cert_file` / `key_file` có sẵn trên máy chủ. |
-| `remote` | Chứng chỉ do panel gửi xuống (`tls_cert` / `tls_key`). |
-| `self` | Chứng chỉ tự ký (client Xray 26 phải ghim mã băm). |
+| Protocol | TCP | UDP | Security |
+|---|:---:|:---:|---|
+| VLESS | Yes | Yes | TLS, REALITY, XTLS Vision, ML-KEM-768 encryption |
+| VMess (AEAD) | Yes | Yes | TLS |
+| Trojan | Yes | Yes | TLS, REALITY |
+| Shadowsocks (AEAD, 2022) | Yes | Yes | Multi-user 2022 via identity headers |
+| Hysteria2 | Yes | Yes | QUIC, Salamander obfuscation |
+| TUIC v5 | Yes | Yes | QUIC |
+| AnyTLS | Yes | Yes | TLS |
 
-- Chứng chỉ lưu ở `/var/lib/tunnix-node/acme/<tên miền>/`, tự gia hạn khi còn dưới 30 ngày, nạp lại không cắt kết nối.
-- Xin cấp lỗi thì node vẫn chạy bằng chứng chỉ tự ký và thử lại sau 1 giờ (tránh giới hạn số lần thử của Let's Encrypt).
-- Chọn `http`/`dns` nghĩa là đồng ý điều khoản của Let's Encrypt (giống v2node). Thêm `"AcmeEmail": "..."` vào cấu hình nếu muốn nhận thư báo.
+Transports: RAW/TCP, WebSocket (including early data), gRPC, HTTPUpgrade, XHTTP.
 
-## Cài đặt nhanh
+Not supported yet: mKCP, multi-user Shadowsocks 2022 with ChaCha20, DNS-01 providers other than Cloudflare.
 
-Chạy bằng root trên VPS Linux (amd64 hoặc arm64):
+## Installation
+
+Run as root on a Linux server (amd64 or arm64).
+
+### Xboard, XiaoBoard, V2Board
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/huzgnm/tunnix-node/main/scripts/install.sh) \
   --panel xiaoboard --api-host 'https://panel.example.com' --node-id 1 --api-key 'SERVER_TOKEN'
 ```
 
-- `--panel`: `xiaoboard` | `xboard` | `v2board`. V2Board gốc cần thêm `--node-type vmess|trojan|shadowsocks`.
-- Mặc định chạy bằng **Docker** (`network_mode: host`). Thêm `--mode systemd` để chạy thẳng không cần Docker.
-- Không truyền tham số thì script hỏi từng bước.
-- Chạy lại lệnh với node khác thì node đó được **thêm** vào cùng một tiến trình. Dùng `--replace` để thay toàn bộ.
+| Option | Description |
+|---|---|
+| `--panel` | `xiaoboard`, `xboard`, `v2board` or `remnawave` (default `xiaoboard`) |
+| `--api-host`, `--node-id`, `--api-key` | Panel URL, node ID and server token (same flags as v2node) |
+| `--node-type` | V2Board only: `vmess`, `trojan` or `shadowsocks` |
+| `--mode` | `docker` (default) or `systemd` |
+| `--version` | Release tag, e.g. `v0.1.0` (default: latest) |
+| `--replace` | Replace existing nodes instead of adding to them |
+| `--bbr` | Enable TCP BBR |
 
-Lệnh cài giống v2node (`--api-host --node-id --api-key`), nên dán lệnh từ panel XiaoBoard rồi đổi đường dẫn script là được.
+Running the script again with another node adds it to the same instance. Without options the
+script asks interactively.
 
 ### Remnawave
 
-Trên panel Remnawave: **Nodes → tạo node** → lấy `SECRET_KEY` trong phần docker-compose, rồi chạy trên VPS:
+Create the node in the panel and copy `SECRET_KEY` from its docker-compose snippet:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/huzgnm/tunnix-node/main/scripts/install.sh) \
-  --panel remnawave --secret-key 'SECRET_KEY_TỪ_PANEL' --node-port 2222
+  --panel remnawave --secret-key 'SECRET_KEY' --node-port 2222
 ```
 
-Panel đẩy cấu hình Xray (profile) xuống node như với remnanode. Hỗ trợ inbound VLESS, VMess, Trojan, Shadowsocks,
-Hysteria với REALITY/TLS và các kiểu truyền ở trên; inbound khác (socks, dokodemo…) được bỏ qua.
-Có thể chạy chung một tiến trình với các node Xboard/XiaoBoard. Nên chỉ mở `NODE_PORT` cho IP panel.
+Supported inbound protocols are VLESS, VMess, Trojan, Shadowsocks and Hysteria with the
+transports listed above; other inbounds in the profile are ignored. Restrict `NODE_PORT` to the
+panel's IP address.
 
-## Quản lý
+### Docker
+
+```yaml
+services:
+  tunnix-node:
+    image: ghcr.io/huzgnm/tunnix-node:latest
+    container_name: tunnix-node
+    restart: always
+    network_mode: host
+    volumes:
+      - /etc/tunnix-node:/etc/tunnix-node
+      - /var/lib/tunnix-node:/var/lib/tunnix-node
+    # Remnawave only:
+    # environment:
+    #   - NODE_PORT=2222
+    #   - SECRET_KEY=...
+```
+
+### Binary
+
+Download an archive from [Releases](https://github.com/huzgnm/tunnix-node/releases), then:
+
+```bash
+tunnix-node server -c /etc/tunnix-node/config.json
+```
+
+## Management
+
+The installer adds a `tunnix` command:
 
 ```text
-tunnix status | start | stop | restart | log
+tunnix start | stop | restart | status | log
 tunnix add --panel xboard --api-host URL --node-id 2 --api-key KEY
 tunnix remove --api-host URL --node-id 2
-tunnix config        # sửa /etc/tunnix-node/config.json
-tunnix update        # cập nhật bản mới nhất
-tunnix x25519        # tạo cặp khoá REALITY
+tunnix config        edit /etc/tunnix-node/config.json
+tunnix update        update to the latest release
+tunnix x25519        generate a REALITY key pair
 tunnix uninstall
 ```
 
-## Cấu hình
+## Configuration
 
-`/etc/tunnix-node/config.json` (cùng tên trường với v2node, thêm `PanelType`):
+`/etc/tunnix-node/config.json` uses the same field names as v2node, so an existing v2node
+configuration can be copied as is (`PanelType` defaults to `xiaoboard`).
 
 ```json
 {
   "Log": { "Level": "info" },
   "Nodes": [
-    { "PanelType": "xiaoboard", "ApiHost": "https://panel.example.com", "NodeID": 1, "ApiKey": "TOKEN", "Timeout": 15 },
-    { "PanelType": "xboard", "ApiHost": "https://xboard.example.com", "NodeID": 7, "ApiKey": "TOKEN" }
-  ]
+    { "PanelType": "xiaoboard", "ApiHost": "https://panel.example.com", "NodeID": 1, "ApiKey": "TOKEN" },
+    { "PanelType": "xboard", "ApiHost": "https://xboard.example.com", "NodeID": 7, "ApiKey": "TOKEN", "Timeout": 15 }
+  ],
+  "Remnawave": { "NodePort": 2222, "SecretKey": "..." },
+  "AcmeEmail": "admin@example.com"
 }
 ```
 
-Chuyển từ v2node: copy `/etc/v2node/config.json` sang `/etc/tunnix-node/config.json` (mặc định `PanelType` là `xiaoboard`).
+| Field | Description |
+|---|---|
+| `Log.Level` | `error`, `warn`, `info`, `debug` or `trace` (`RUST_LOG` overrides) |
+| `Nodes[].PanelType` | `xiaoboard`, `xboard` or `v2board` |
+| `Nodes[].ApiHost`, `NodeID`, `ApiKey` | Panel connection |
+| `Nodes[].NodeType` | V2Board only: `vmess`, `trojan`, `shadowsocks` |
+| `Nodes[].Timeout` | Panel request timeout in seconds (default 15) |
+| `Nodes[].SpeedLimit` | Node-wide speed limit in Mbps, applied with per-user limits (default 0 = none) |
+| `Remnawave` | Remnawave mode; `NODE_PORT` / `SECRET_KEY` environment variables also work |
+| `AcmeEmail` | Optional ACME account contact |
+| `DataDir` | State directory (default `/var/lib/tunnix-node`) |
 
-## Build
+### TLS certificates
+
+The certificate mode is taken from the panel (`cert_mode`):
+
+| Mode | Behaviour |
+|---|---|
+| `http` | Let's Encrypt via HTTP-01. Port 80 must be reachable while issuing and renewing. |
+| `dns` | Let's Encrypt via DNS-01. Cloudflare: `provider = cloudflare`, `dns_env = CF_DNS_API_TOKEN=...` (or `CF_API_EMAIL` and `CF_API_KEY`). |
+| `file` | Uses `cert_file` and `key_file` on the server. |
+| `remote` | Uses the certificate and key sent by the panel. |
+| `self` | Self-signed certificate. |
+
+Certificates are stored in `<DataDir>/acme/<domain>/` and renewed 30 days before expiry without
+dropping connections. If issuance fails the node starts with a self-signed certificate and retries
+hourly. Using `http` or `dns` implies acceptance of the Let's Encrypt subscriber agreement.
+
+Xray 26 clients no longer support `allowInsecure`; with self-signed certificates clients must pin
+the certificate (`pinnedPeerCertSha256`).
+
+## Building from source
+
+Requires Rust 1.99 or newer.
 
 ```bash
 cargo build --release -p tunnix-node
-# Linux tĩnh (musl) từ macOS:
+```
+
+Static Linux binaries are built with [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild):
+
+```bash
 cargo zigbuild --release -p tunnix-node --target x86_64-unknown-linux-musl
-# Docker từ mã nguồn:
+cargo zigbuild --release -p tunnix-node --target aarch64-unknown-linux-musl
+```
+
+Container image from source:
+
+```bash
 docker build -f docker/Dockerfile.source -t tunnix-node .
 ```
 
-Đẩy tag `vX.Y.Z` lên GitHub thì workflow `release` tự build bản Linux amd64/arm64, tạo Release và đẩy image lên `ghcr.io`.
+Pushing a `v*` tag runs the release workflow, which publishes the archives and the
+`ghcr.io/huzgnm/tunnix-node` image.
 
-## Giấy phép
+## Project layout
 
-Mã nguồn độc quyền, xem [LICENSE](LICENSE). Lõi giao thức (`crates/core`) là bản sửa đổi của
-[shoes](https://github.com/cfal/shoes) theo giấy phép MIT, xem [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+| Path | Contents |
+|---|---|
+| `crates/node` | Panel clients, Remnawave API, ACME, configuration builder, CLI |
+| `crates/core` | Protocol core, a fork of [shoes](https://github.com/cfal/shoes); TunnixNode changes are in `src/tunnix/` |
+| `scripts/install.sh` | Installer and the `tunnix` management command |
+| `scripts/dev` | Local test helpers (mock panel, mock Cloudflare API) |
+
+## Acknowledgements
+
+The protocol core is based on [shoes](https://github.com/cfal/shoes) by Alex Lau. Protocol
+behaviour follows [Xray-core](https://github.com/XTLS/Xray-core) and
+[sing-box](https://github.com/SagerNet/sing-box) for client compatibility.
+
+## License
+
+Proprietary. See [LICENSE](LICENSE). The code under `crates/core` is derived from shoes and
+remains under the MIT License; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

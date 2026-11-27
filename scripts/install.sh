@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# TunnixNode - cài nhanh node VPN cho Xboard / XiaoBoard / V2Board / Remnawave.
+# TunnixNode installer for Xboard, XiaoBoard, V2Board and Remnawave nodes.
 #
 #   bash <(curl -fsSL https://raw.githubusercontent.com/huzgnm/tunnix-node/main/scripts/install.sh) \
 #       --panel xiaoboard --api-host 'https://panel.example.com' --node-id 1 --api-key 'TOKEN'
 #
-# Tham số:
-#   --panel      xiaoboard | xboard | v2board | remnawave   (mặc định: xiaoboard)
-#   --api-host   địa chỉ panel (API URL)
-#   --node-id    ID node trên panel
-#   --api-key    khoá giao tiếp node (server token)
-#   --node-type  chỉ cho V2Board gốc: vmess | trojan | shadowsocks
-#   --secret-key Remnawave: SECRET_KEY lấy từ panel (Nodes → docker-compose)
-#   --node-port  Remnawave: NODE_PORT (mặc định 2222)
-#   --mode       docker | systemd   (mặc định: docker)
-#   --version    phiên bản, ví dụ v0.1.0 (mặc định: mới nhất)
-#   --replace    xoá các node cũ trong cấu hình trước khi thêm (mặc định: thêm vào)
-#   --bbr        bật TCP BBR
-#   -y           không hỏi lại
+# Options:
+#   --panel      xiaoboard | xboard | v2board | remnawave   (default: xiaoboard)
+#   --api-host   panel API URL
+#   --node-id    node ID on the panel
+#   --api-key    node communication key (server token)
+#   --node-type  original V2Board only: vmess | trojan | shadowsocks
+#   --secret-key Remnawave: SECRET_KEY from the panel (Nodes > docker-compose)
+#   --node-port  Remnawave: NODE_PORT (default: 2222)
+#   --mode       docker | systemd   (default: docker)
+#   --version    release tag, e.g. v0.1.0 (default: latest)
+#   --replace    replace existing nodes instead of adding to them
+#   --bbr        enable TCP BBR
+#   -y           non-interactive
 #
-# Tương thích lệnh cài của v2node: --api-host / --node-id / --api-key.
+# The --api-host / --node-id / --api-key flags match the v2node installer.
 # Remnawave: bash install.sh --panel remnawave --secret-key '...' [--node-port 2222]
 set -euo pipefail
 
@@ -35,7 +35,7 @@ MANAGER="/usr/bin/tunnix"
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[33m%s\033[0m\n' "$*"; }
-die() { red "Lỗi: $*" >&2; exit 1; }
+die() { red "Error: $*" >&2; exit 1; }
 
 PANEL="" API_HOST="" NODE_ID="" API_KEY="" NODE_TYPE="" MODE="" VERSION="" REPLACE=0 BBR=0 YES=0 UPDATE_ONLY=0
 SECRET_KEY="" NODE_PORT=""
@@ -58,20 +58,20 @@ while [[ $# -gt 0 ]]; do
         --update-only) UPDATE_ONLY=1; YES=1; shift ;;
         -h|--help) sed -n '2,22p' "$0" 2>/dev/null || true; exit 0 ;;
         v[0-9]*|[0-9]*.[0-9]*) VERSION="$1"; shift ;;
-        *) die "tham số không hợp lệ: $1" ;;
+        *) die "unknown option: $1" ;;
     esac
 done
 
-[[ $EUID -eq 0 ]] || die "cần chạy bằng root (sudo -i)"
-[[ "$REPO" != CHANGE_ME/* ]] || die "script chưa được cấu hình kho GitHub (biến REPO)"
+[[ $EUID -eq 0 ]] || die "must be run as root"
+[[ "$REPO" != CHANGE_ME/* ]] || die "REPO is not configured"
 
 case "$(uname -m)" in
     x86_64|amd64) ARCH=amd64 ;;
     aarch64|arm64) ARCH=arm64 ;;
-    *) die "kiến trúc $(uname -m) chưa được hỗ trợ (chỉ amd64, arm64)" ;;
+    *) die "unsupported architecture $(uname -m) (amd64 and arm64 only)" ;;
 esac
 
-ask() { # ask VAR "câu hỏi" [mặc định]
+ask() { # ask VAR "prompt" [default]
     local __var="$1" __q="$2" __def="${3:-}" __ans
     if [[ -n "$__def" ]]; then read -r -p "$__q [$__def]: " __ans </dev/tty || true; else read -r -p "$__q: " __ans </dev/tty || true; fi
     printf -v "$__var" '%s' "${__ans:-$__def}"
@@ -83,23 +83,23 @@ pkg_install() {
     elif command -v dnf >/dev/null; then dnf install -y -q "$@" >/dev/null
     elif command -v yum >/dev/null; then yum install -y -q "$@" >/dev/null
     elif command -v apk >/dev/null; then apk add --no-cache -q "$@" >/dev/null
-    else die "không tìm thấy trình quản lý gói để cài: $*"; fi
+    else die "no supported package manager to install: $*"; fi
 }
 
 choose_panel() {
     [[ -n "$PANEL" ]] && return
-    echo "Chọn loại panel:"
-    echo "  1) XiaoBoard (wyx2685/v2board - panel của v2node)"
+    echo "Panel type:"
+    echo "  1) XiaoBoard (wyx2685/v2board, v2node API)"
     echo "  2) Xboard (cedar2025)"
-    echo "  3) V2Board gốc (vmess / trojan / shadowsocks)"
+    echo "  3) V2Board (vmess / trojan / shadowsocks)"
     echo "  4) Remnawave"
-    local c; ask c "Nhập số" 1
-    case "$c" in 1) PANEL=xiaoboard ;; 2) PANEL=xboard ;; 3) PANEL=v2board ;; 4) PANEL=remnawave ;; *) die "lựa chọn không hợp lệ" ;; esac
+    local c; ask c "Choice" 1
+    case "$c" in 1) PANEL=xiaoboard ;; 2) PANEL=xboard ;; 3) PANEL=v2board ;; 4) PANEL=remnawave ;; *) die "invalid choice" ;; esac
 }
 
 PANEL="${PANEL,,}"
 if [[ $UPDATE_ONLY -eq 1 ]]; then
-    [[ -f "$CONF" || -s "$RW_ENV" ]] || die "chưa cài TunnixNode (không thấy $CONF)"
+    [[ -f "$CONF" || -s "$RW_ENV" ]] || die "TunnixNode is not installed ($CONF not found)"
     PANEL=skip
 elif [[ -n "$SECRET_KEY" && -z "$PANEL" ]]; then
     PANEL=remnawave
@@ -112,39 +112,39 @@ case "$PANEL" in
     xiaoboard|v2node|wyx2685) PANEL=xiaoboard ;;
     xboard|v2board) ;;
     remnawave) ;;
-    *) die "--panel phải là xiaoboard | xboard | v2board | remnawave" ;;
+    *) die "--panel must be xiaoboard, xboard, v2board or remnawave" ;;
 esac
 
 if [[ $UPDATE_ONLY -eq 0 && "$PANEL" == remnawave ]]; then
-    [[ -n "$SECRET_KEY" ]] || ask SECRET_KEY "SECRET_KEY (Remnawave → Nodes → node → docker-compose)"
+    [[ -n "$SECRET_KEY" ]] || ask SECRET_KEY "SECRET_KEY (Remnawave > Nodes > docker-compose)"
     [[ -n "$NODE_PORT" ]] || ask NODE_PORT "NODE_PORT" 2222
     SECRET_KEY="${SECRET_KEY#SECRET_KEY=}"; SECRET_KEY="${SECRET_KEY//\"/}"; SECRET_KEY="${SECRET_KEY//\'/}"
-    [[ -n "$SECRET_KEY" ]] || die "thiếu SECRET_KEY"
-    [[ "$NODE_PORT" =~ ^[0-9]+$ ]] || die "NODE_PORT phải là số"
+    [[ -n "$SECRET_KEY" ]] || die "SECRET_KEY is required"
+    [[ "$NODE_PORT" =~ ^[0-9]+$ ]] || die "NODE_PORT must be a number"
 elif [[ $UPDATE_ONLY -eq 0 ]]; then
-[[ -n "$API_HOST" ]] || ask API_HOST "Địa chỉ API panel (vd https://panel.example.com)"
-[[ -n "$NODE_ID" ]] || ask NODE_ID "ID node"
-[[ -n "$API_KEY" ]] || ask API_KEY "Khoá giao tiếp (server token)"
+[[ -n "$API_HOST" ]] || ask API_HOST "Panel API URL (e.g. https://panel.example.com)"
+[[ -n "$NODE_ID" ]] || ask NODE_ID "Node ID"
+[[ -n "$API_KEY" ]] || ask API_KEY "Server token"
 if [[ "$PANEL" == v2board && -z "$NODE_TYPE" ]]; then
-    ask NODE_TYPE "Loại node (vmess | trojan | shadowsocks)" vmess
+    ask NODE_TYPE "Node type (vmess | trojan | shadowsocks)" vmess
 fi
-[[ "$API_HOST" =~ ^https?:// ]] || die "địa chỉ panel phải bắt đầu bằng http:// hoặc https://"
-[[ "$NODE_ID" =~ ^[0-9]+$ ]] || die "ID node phải là số"
-[[ -n "$API_KEY" ]] || die "thiếu khoá giao tiếp"
+[[ "$API_HOST" =~ ^https?:// ]] || die "the panel URL must start with http:// or https://"
+[[ "$NODE_ID" =~ ^[0-9]+$ ]] || die "the node ID must be a number"
+[[ -n "$API_KEY" ]] || die "the server token is required"
 fi
 
 if [[ -z "$MODE" ]]; then
     if [[ -f "$CONF_DIR/mode" ]]; then MODE="$(cat "$CONF_DIR/mode")"
     elif [[ $YES -eq 1 ]]; then MODE=docker
     else
-        echo "Cách chạy:"
-        echo "  1) Docker (khuyên dùng)"
-        echo "  2) systemd (chạy thẳng, nhẹ hơn cho VPS yếu)"
-        local_c=""; ask local_c "Nhập số" 1
+        echo "Run mode:"
+        echo "  1) Docker (recommended)"
+        echo "  2) systemd (native binary)"
+        local_c=""; ask local_c "Choice" 1
         [[ "$local_c" == 2 ]] && MODE=systemd || MODE=docker
     fi
 fi
-[[ "$MODE" == docker || "$MODE" == systemd ]] || die "--mode phải là docker hoặc systemd"
+[[ "$MODE" == docker || "$MODE" == systemd ]] || die "--mode must be docker or systemd"
 
 command -v curl >/dev/null || pkg_install curl
 command -v tar >/dev/null || pkg_install tar
@@ -154,10 +154,10 @@ if [[ -z "$VERSION" && -n "${TUNNIX_LOCAL_TARBALL:-}" ]]; then
 fi
 if [[ -z "$VERSION" ]]; then
     VERSION="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n1)"
-    [[ -n "$VERSION" ]] || die "không lấy được phiên bản mới nhất từ GitHub"
+    [[ -n "$VERSION" ]] || die "could not determine the latest release from GitHub"
 fi
 [[ "$VERSION" == v* ]] || VERSION="v$VERSION"
-green "TunnixNode $VERSION | panel: ${PANEL/skip/giữ nguyên} | chế độ: $MODE | $ARCH"
+green "TunnixNode $VERSION | panel: ${PANEL/skip/unchanged} | mode: $MODE | $ARCH"
 
 mkdir -p "$CONF_DIR" "$DATA_DIR"
 chmod 700 "$CONF_DIR"
@@ -170,17 +170,17 @@ if [[ $REPLACE -eq 1 && -f "$CONF" ]]; then
     rm -f "$CONF"
 fi
 
-# ---------- tải / cài ----------
+# ---------- download / install ----------
 install_docker() {
     if ! command -v docker >/dev/null; then
-        yellow "Đang cài Docker..."
+        yellow "Installing Docker..."
         curl -fsSL https://get.docker.com | sh
     fi
     systemctl enable --now docker >/dev/null 2>&1 || true
     docker compose version >/dev/null 2>&1 || pkg_install docker-compose-plugin
 }
 
-run_node_cli() { # chạy lệnh tunnix-node (add-node, x25519, ...)
+run_node_cli() { # runs a tunnix-node subcommand (add-node, x25519, ...)
     if [[ "$MODE" == docker ]]; then
         docker run --rm -v "$CONF_DIR:$CONF_DIR" "$IMAGE:${VERSION#v}" "$@"
     else
@@ -217,7 +217,7 @@ services:
         max-size: "20m"
         max-file: "3"
 EOF
-    # Gỡ bản systemd cũ nếu có.
+    # Remove a previous systemd install, if any.
     systemctl disable --now "$NAME" >/dev/null 2>&1 || true
 else
     tmp="$(mktemp -d)"
@@ -227,11 +227,11 @@ else
         # Testing: install from a local build instead of GitHub.
         cp "$TUNNIX_LOCAL_TARBALL" "$tmp/tn.tar.gz"
     else
-        yellow "Đang tải $url"
-        curl -fL --retry 3 -o "$tmp/tn.tar.gz" "$url" || die "tải bản cài thất bại"
+        yellow "Downloading $url"
+        curl -fL --retry 3 -o "$tmp/tn.tar.gz" "$url" || die "download failed"
     fi
     if [[ -z "${TUNNIX_LOCAL_TARBALL:-}" ]] && curl -fsSL -o "$tmp/tn.tar.gz.sha256" "$url.sha256"; then
-        (cd "$tmp" && echo "$(cut -d' ' -f1 tn.tar.gz.sha256)  tn.tar.gz" | sha256sum -c - >/dev/null) || die "sai mã kiểm tra SHA256"
+        (cd "$tmp" && echo "$(cut -d' ' -f1 tn.tar.gz.sha256)  tn.tar.gz" | sha256sum -c - >/dev/null) || die "SHA256 checksum mismatch"
     fi
     tar -xzf "$tmp/tn.tar.gz" -C "$tmp"
     install -d "$BIN_DIR"
@@ -274,13 +274,13 @@ if [[ $BBR -eq 1 ]]; then
     grep -q 'net.core.default_qdisc' /etc/sysctl.conf || echo 'net.core.default_qdisc=fq' >> /etc/sysctl.conf
     grep -q 'net.ipv4.tcp_congestion_control' /etc/sysctl.conf || echo 'net.ipv4.tcp_congestion_control=bbr' >> /etc/sysctl.conf
     sysctl -p >/dev/null 2>&1 || true
-    green "Đã bật BBR"
+    green "BBR enabled"
 fi
 
-# ---------- script quản lý ----------
+# ---------- management command ----------
 cat > "$MANAGER" <<'MANAGER_EOF'
 #!/usr/bin/env bash
-# tunnix - quản lý TunnixNode
+# tunnix - TunnixNode management
 NAME=tunnix-node
 CONF_DIR=/etc/tunnix-node
 CONF=$CONF_DIR/config.json
@@ -314,16 +314,16 @@ svc() {
 }
 usage() {
 cat <<EOF
-tunnix <lệnh>
-  start | stop | restart | status | log      điều khiển node
+Usage: tunnix <command>
+  start | stop | restart | status | log      control the service
   add   --panel P --api-host URL --node-id N --api-key K [--node-type T]
-                                             thêm node vào cấu hình
-  remove --api-host URL --node-id N          xoá node khỏi cấu hình
-  config                                     sửa file cấu hình
-  update [vX.Y.Z]                            cập nhật phiên bản
-  x25519                                     tạo cặp khoá REALITY
-  version                                    xem phiên bản
-  uninstall                                  gỡ TunnixNode
+                                             add a node
+  remove --api-host URL --node-id N          remove a node
+  config                                     edit the configuration
+  update [vX.Y.Z]                            update to a release
+  x25519                                     generate a REALITY key pair
+  version                                    show the version
+  uninstall                                  remove TunnixNode
 EOF
 }
 
@@ -337,17 +337,17 @@ case "${1:-}" in
     x25519) cli x25519 ;;
     version) cli version ;;
     uninstall)
-        read -r -p "Gỡ TunnixNode và xoá cấu hình? [y/N] " a; [[ $a == y || $a == Y ]] || exit 0
+        read -r -p "Remove TunnixNode and its configuration? [y/N] " a; [[ $a == y || $a == Y ]] || exit 0
         if [[ $MODE == docker ]]; then docker compose -f $COMPOSE down; rm -rf /opt/tunnix-node
         else systemctl disable --now $NAME; rm -f /etc/systemd/system/$NAME.service; systemctl daemon-reload; rm -rf /usr/local/tunnix-node; fi
-        rm -rf $CONF_DIR /var/lib/tunnix-node /usr/bin/tunnix; echo "Đã gỡ." ;;
+        rm -rf $CONF_DIR /var/lib/tunnix-node /usr/bin/tunnix; echo "Removed." ;;
     *) usage ;;
 esac
 MANAGER_EOF
 chmod +x "$MANAGER"
 echo "$REPO" > "$CONF_DIR/repo"
 
-# ---------- khởi động ----------
+# ---------- start ----------
 if [[ "$MODE" == docker ]]; then
     docker compose -f "$COMPOSE_DIR/docker-compose.yml" up -d --force-recreate
 else
@@ -355,9 +355,9 @@ else
     systemctl restart "$NAME"
 fi
 sleep 3
-green "Đã cài xong TunnixNode $VERSION."
+green "TunnixNode $VERSION installed."
 if [[ "$PANEL" == remnawave ]]; then
-    yellow "Remnawave: thêm node trên panel với địa chỉ IP máy này, cổng $NODE_PORT. Nên chỉ mở cổng $NODE_PORT cho IP panel."
+    yellow "Remnawave: add this server on the panel with port $NODE_PORT, and allow that port from the panel IP only."
 fi
-echo "Quản lý: tunnix status | tunnix log | tunnix add ... | tunnix update"
+echo "Manage with: tunnix status | tunnix log | tunnix add ... | tunnix update"
 "$MANAGER" status || true

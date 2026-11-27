@@ -306,7 +306,7 @@ impl GrpcServerHandler {
     fn path_matches(&self, path: &str) -> bool {
         let service = self.service.trim_matches('/');
         if self.service.starts_with('/') {
-            // Xray custom form: "/a/b|c" → "/a/b" and "/a/c"; accept the given prefix.
+            // Xray custom form: "/a/b|c" -> "/a/b" and "/a/c"; accept the given prefix.
             let first = self.service.split('|').next().unwrap_or("");
             return path == first || path.starts_with(&format!("{}/", first.trim_end_matches('/')));
         }
