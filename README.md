@@ -7,8 +7,9 @@
 TunnixNode is a proxy node backend written in Rust. It connects to a panel, serves the
 panel's users over Xray-compatible protocols, and reports traffic and online devices back.
 
-It is a drop-in replacement for [v2node](https://github.com/wyx2685/v2node) and
-[remnawave/node](https://github.com/remnawave/node) and works with standard Xray, sing-box and
+TunnixNode is an independent node implementation. It speaks the same panel APIs as
+[v2node](https://github.com/wyx2685/v2node) and [remnawave/node](https://github.com/remnawave/node),
+so it can run alongside them under the same panel, and it works with standard Xray, sing-box and
 Hysteria clients. No Go runtime and no garbage collector are involved, which keeps memory use low
 and latency stable under load.
 
