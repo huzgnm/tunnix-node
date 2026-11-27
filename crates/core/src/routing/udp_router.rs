@@ -639,7 +639,12 @@ impl<'a> UdpRouter<'a> {
                     p
                 }
                 Poll::Ready(Err(e)) => {
-                    warn!("server read error: {}", e);
+                    // tunnix: a client going away is routine.
+                    if crate::tunnix::is_client_gone(&e) {
+                        log::debug!("server read closed: {}", e);
+                    } else {
+                        warn!("server read error: {}", e);
+                    }
                     self.set_server_read_eof();
                     break;
                 }

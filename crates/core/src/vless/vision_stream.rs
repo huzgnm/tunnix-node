@@ -433,9 +433,11 @@ where
                         if prefix.is_empty() {
                             return Err(io::Error::other("FuzzyTlsDeframer returned empty prefix"));
                         }
+                        // tunnix: the prefix is only skipped by the TLS detector; the data
+                        // itself is still delivered, so this is not worth a warning.
                         if prefix.len() > 512 {
-                            log::warn!(
-                                "VISION READ: Unusually large prefix discarded: {} bytes",
+                            log::debug!(
+                                "VISION READ: Unusually large non-TLS prefix skipped by the filter: {} bytes",
                                 prefix.len()
                             );
                         }

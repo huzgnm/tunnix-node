@@ -429,7 +429,12 @@ impl AsyncReadSessionMessage for XudpMessageStream {
                     continue;
                 }
                 Err(e) => {
-                    log::error!("[XUDP SESSION READ] Error reading from inner stream: {}", e);
+                    // tunnix: a client going away is routine.
+                    if crate::tunnix::is_client_gone(&e) {
+                        log::debug!("[XUDP SESSION READ] inner stream closed: {}", e);
+                    } else {
+                        log::error!("[XUDP SESSION READ] Error reading from inner stream: {}", e);
+                    }
                     return Poll::Ready(Err(e));
                 }
             }
