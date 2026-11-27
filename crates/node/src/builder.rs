@@ -443,38 +443,9 @@ fn rules(info: &NodeInfo) -> Value {
     } else {
         vec![json!({"masks": BLOCKED_RANGES, "action": "block"})]
     };
-    let mut blocked: Vec<String> = Vec::new();
-    for route in &info.routes {
-        match route.action.as_str() {
-            "block" | "block_ip" => {
-                for m in &route.matches {
-                    let m = m.trim();
-                    let plain = m
-                        .strip_prefix("domain:")
-                        .or_else(|| m.strip_prefix("full:"))
-                        .unwrap_or(m);
-                    if plain.contains(':')
-                        && !plain.contains('/')
-                        && plain.parse::<std::net::IpAddr>().is_err()
-                        || plain.starts_with("geosite")
-                        || plain.starts_with("geoip")
-                        || plain.starts_with("regexp")
-                        || plain.starts_with("keyword")
-                    {
-                        warn!("route match {m:?} is not supported yet; skipped");
-                        continue;
-                    }
-                    if !plain.is_empty() {
-                        blocked.push(plain.to_string());
-                    }
-                }
-            }
-            "dns" | "" => {}
-            other => warn!("route action {other:?} is not supported yet; skipped"),
-        }
-    }
-    if !blocked.is_empty() {
-        rules.push(json!({"masks": blocked, "action": "block"}));
+    let block = block_conditions(&info.routes);
+    if !block.is_empty() {
+        rules.push(json!({"conditions": {"any": block}, "action": "block"}));
     }
     rules.push(json!({
         "conditions": {"any_destination": true},
@@ -482,6 +453,123 @@ fn rules(info: &NodeInfo) -> Value {
         "client_chain": {"protocol": {"type": "direct"}},
     }));
     Value::Array(rules)
+}
+
+/// Translates panel block routes into core rule conditions, following Xray semantics as v2node
+/// does: `block` matches domains, `block_ip` addresses, `block_port` ports and `protocol`
+/// sniffed protocols. Entries the core cannot express are skipped with a warning, so an
+/// unsupported rule never prevents the node from starting.
+fn block_conditions(routes: &[crate::panel::Route]) -> Vec<Value> {
+    let mut lists: std::collections::BTreeMap<&'static str, Vec<Value>> = Default::default();
+    let skip = |action: &str, m: &str| {
+        warn!("route {action} match {m:?} is not supported; skipped");
+    };
+    for route in routes {
+        let action = route.action.as_str();
+        for m in route
+            .matches
+            .iter()
+            .map(|m| m.trim())
+            .filter(|m| !m.is_empty())
+        {
+            let entry: Option<(&'static str, Value)> = match action {
+                "block" => {
+                    if let Some(v) = m.strip_prefix("domain:") {
+                        Some(("domain_suffix", json!(v)))
+                    } else if let Some(v) = m.strip_prefix("full:") {
+                        Some(("domain", json!(v)))
+                    } else if let Some(v) = m.strip_prefix("keyword:") {
+                        Some(("domain_keyword", json!(v)))
+                    } else if let Some(v) = m.strip_prefix("regexp:") {
+                        Some(("domain_regex", json!(v)))
+                    } else if m.contains(':') {
+                        None // geosite:, ext:, ...
+                    } else {
+                        // Xray treats a bare string as a substring match.
+                        Some(("domain_keyword", json!(m)))
+                    }
+                }
+                "block_ip" => {
+                    if m.contains(':')
+                        && m.parse::<std::net::Ipv6Addr>().is_err()
+                        && !m.contains('/')
+                    {
+                        None // geoip:, ext:, ...
+                    } else if let Ok(ip) = m.parse::<std::net::IpAddr>() {
+                        let bits = if ip.is_ipv4() { 32 } else { 128 };
+                        Some(("ip_cidr", json!(format!("{ip}/{bits}"))))
+                    } else {
+                        Some(("ip_cidr", json!(m)))
+                    }
+                }
+                "block_port" => {
+                    for part in m.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+                        match part.parse::<u16>() {
+                            Ok(port) => lists
+                                .entry("destination_port")
+                                .or_default()
+                                .push(json!(port)),
+                            Err(_) => push_checked(
+                                &mut lists,
+                                "destination_port_range",
+                                json!(part.replace('-', ":")),
+                                action,
+                                part,
+                            ),
+                        }
+                    }
+                    continue;
+                }
+                // QUIC is UDP to port 443; other sniffed protocols are not available.
+                "protocol" if m.eq_ignore_ascii_case("quic") => {
+                    lists.entry("quic").or_default().push(json!(true));
+                    continue;
+                }
+                "protocol" => None,
+                "dns" => continue,
+                _ => {
+                    skip(action, m);
+                    continue;
+                }
+            };
+            match entry {
+                Some((key, value)) => push_checked(&mut lists, key, value, action, m),
+                None => skip(action, m),
+            }
+        }
+        if !matches!(
+            action,
+            "block" | "block_ip" | "block_port" | "protocol" | "dns" | ""
+        ) && route.matches.is_empty()
+        {
+            warn!("route action {action:?} is not supported; skipped");
+        }
+    }
+
+    let mut conditions = Vec::new();
+    for (key, values) in lists {
+        if key == "quic" {
+            conditions.push(json!({"all": [{"network": "udp"}, {"destination_port": [443]}]}));
+        } else {
+            conditions.push(json!({ key: values }));
+        }
+    }
+    conditions
+}
+
+/// Adds `value` to the `key` list only if the core accepts it on its own.
+fn push_checked(
+    lists: &mut std::collections::BTreeMap<&'static str, Vec<Value>>,
+    key: &'static str,
+    value: Value,
+    action: &str,
+    m: &str,
+) {
+    if shoes::tunnix::is_valid_condition(&json!({ key: [value.clone()] })) {
+        lists.entry(key).or_default().push(value);
+    } else {
+        warn!("route {action} match {m:?} is not valid; skipped");
+    }
 }
 
 #[cfg(test)]
@@ -512,6 +600,68 @@ mod tests {
         assert_eq!(t["vision"], true);
         assert_eq!(t["protocol"]["type"], "vless");
         assert_eq!(t["protocol"]["user_id"], ctx.placeholder);
+    }
+
+    #[tokio::test]
+    async fn routes_follow_xray_semantics_and_skip_unsupported() {
+        let info = node(json!({"protocol": "vless", "server_port": 8443, "tls": 0,
+        "network": "tcp",
+        "routes": [
+            {"id": 1, "action": "protocol", "match": ["quic", "bittorrent"]},
+            {"id": 2, "action": "route", "match": ["geosite:google", "domain:gemini.google.com"],
+             "action_value": "{\"tag\":\"ai\",\"protocol\":\"socks\"}"},
+            {"id": 3, "action": "block", "match": ["domain:ads.example.com", "full:x.example",
+             "keyword:tracker", "regexp:^bad\\.", "regexp:(", "geosite:category-ads",
+             "*.wild.example", "doubleclick", " "]},
+            {"id": 4, "action": "block_ip", "match": ["10.1.0.0/16", "1.2.3.4", "2001:db8::1",
+             "geoip:cn", "1.2.3.0/abc"]},
+            {"id": 5, "action": "block_port", "match": ["25,465", "6881-6889", "x"]},
+            {"id": 6, "action": "default_out", "match": []},
+            {"id": 7, "action": "dns", "match": ["example.com"], "action_value": "1.1.1.1"},
+        ]}));
+        let r = rules(&info);
+        let block = r
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| {
+                rule.get("conditions")
+                    .is_some_and(|c| c.get("any").is_some())
+            })
+            .unwrap();
+        assert_eq!(
+            block["conditions"]["any"],
+            json!([
+                {"destination_port": [25, 465]},
+                {"destination_port_range": ["6881:6889"]},
+                {"domain": ["x.example"]},
+                {"domain_keyword": ["tracker", "*.wild.example", "doubleclick"]},
+                {"domain_regex": ["^bad\\."]},
+                {"domain_suffix": ["ads.example.com"]},
+                {"ip_cidr": ["10.1.0.0/16", "1.2.3.4/32", "2001:db8::1/128"]},
+                {"all": [{"network": "udp"}, {"destination_port": [443]}]},
+            ])
+        );
+
+        let dir = std::env::temp_dir().join(format!("tunnix-routes-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ctx = BuildContext {
+            placeholder: "11111111-1111-4111-8111-111111111111",
+            ..ctx(&dir)
+        };
+        let servers = build_servers(&info, &ctx).unwrap();
+        let path = dir.join("config.json");
+        std::fs::write(&path, serde_json::to_string(&servers).unwrap()).unwrap();
+        let checked = shoes::tunnix::check_config(vec![path.display().to_string()]).await;
+        std::fs::remove_dir_all(&dir).ok();
+        checked.unwrap();
+    }
+
+    #[test]
+    fn no_routes_adds_no_block_rule() {
+        let info =
+            node(json!({"protocol": "vless", "server_port": 8443, "tls": 0, "network": "tcp"}));
+        assert!(block_conditions(&info.routes).is_empty());
     }
 
     fn ctx(dir: &Path) -> BuildContext<'_> {

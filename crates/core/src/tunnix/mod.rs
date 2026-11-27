@@ -68,6 +68,13 @@ impl UuidAuth {
 static DNS_HIJACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// Answers client DNS (port 53) with the server's resolver, like v2node does.
+/// Whether `value` is a rule condition the core accepts, e.g. `{"domain_regex": ["^ads\\."]}`.
+pub fn is_valid_condition(value: &serde_json::Value) -> bool {
+    crate::rules::Expression::from_config(value.clone())
+        .and_then(|expression| crate::rules::Compiler::default().compile(expression))
+        .is_ok()
+}
+
 pub fn set_dns_hijack(enabled: bool) {
     DNS_HIJACK.store(enabled, std::sync::atomic::Ordering::Relaxed);
 }

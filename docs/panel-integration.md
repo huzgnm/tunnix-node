@@ -123,13 +123,17 @@ Field names and aliases of XiaoBoard and Xboard are both accepted (`network_sett
 | `flow` | `xtls-rprx-vision` |
 | `cert_mode` | `http`, `dns` (Cloudflare), `file`, `remote`, `self` |
 | Hysteria2 `obfs` | `salamander` |
-| `routes` | `block` / `block_ip` with domains and IP ranges |
+| `routes` | `block` (bare keyword, `domain:`, `full:`, `keyword:`, `regexp:`), `block_ip` (IP, CIDR), `block_port` (ports, ranges), `protocol` `quic` (UDP port 443); matched as Xray does |
 | `base_config` | `push_interval`, `pull_interval`, `node_report_min_traffic`, `device_online_min_traffic` |
 | Users | `id`, `uuid`, `speed_limit` (Mbit/s), `device_limit` |
 
 Not supported: mKCP, Hysteria v1, multi-user Shadowsocks 2022 with ChaCha20, REALITY `xver`,
-route actions other than `block`/`block_ip`, `geosite:` / `geoip:` / `regexp:` route matches.
-A node using them logs a clear error; a running node keeps its previous configuration, a new node retries until the configuration is valid.
+route actions `route`, `route_ip` and `default_out` (traffic leaves the node directly),
+`geosite:` / `geoip:` / `ext:` matches, and protocol matches other than `quic`.
+Unsupported route rules and matches are skipped one by one with a warning in the log; the node
+keeps running with the rest of its configuration. Unsupported protocols or transports are reported as an
+error; a running node keeps its previous configuration and a new node retries until the
+configuration is valid.
 
 Remnawave profiles: VLESS, VMess, Trojan, Shadowsocks and Hysteria inbounds with the transports
 above are served; other inbounds (socks, dokodemo-door, tun, ...) are ignored. Plugins
