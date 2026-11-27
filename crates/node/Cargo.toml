@@ -1,0 +1,42 @@
+[package]
+name = "tunnix-node"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+license-file = "../../LICENSE"
+description = "TunnixNode - VPN node for Xboard / V2Board / XiaoBoard / Remnawave panels"
+
+[[bin]]
+name = "tunnix-node"
+path = "src/main.rs"
+
+[dependencies]
+shoes = { package = "tunnix-core", path = "../core" }
+anyhow = "1"
+aws-lc-rs = "1"
+base64 = "0.22"
+flate2 = "1"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+memory-stats = "1"
+ruzstd = "0.9"
+rustls = "=0.23.46"
+tokio-rustls = "0.26"
+bytes = "1"
+http = "1"
+http-body-util = "0.1"
+instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "rcgen", "time"] }
+libc = "0.2"
+parking_lot = "0.12"
+x509-parser = { version = "0.18", default-features = false }
+log = "0.4"
+rcgen = { version = "0.14", default-features = false, features = ["aws_lc_rs", "pem"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "http2", "query"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(not(any(target_env = "msvc", target_os = "ios", target_os = "android")))'.dependencies]
+mimalloc = { version = "0.1", default-features = false }

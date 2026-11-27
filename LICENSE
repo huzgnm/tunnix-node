@@ -1,0 +1,17 @@
+TunnixNode
+Copyright (c) 2026 MosVPN. All rights reserved.
+
+This software and its source code are proprietary. No part of it may be used,
+copied, modified, merged, published, distributed, sublicensed or sold without
+prior written permission from the copyright holder, except for installing and
+running the official release binaries and container images on servers that
+connect to a panel operated by, or licensed from, the copyright holder.
+
+The directory crates/core contains a modified copy of "shoes"
+(https://github.com/cfal/shoes), which is licensed under the MIT License.
+That code remains under the MIT License; see crates/core/LICENSE and
+THIRD_PARTY_NOTICES.md. This proprietary license applies to everything else.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.

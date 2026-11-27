@@ -1,0 +1,132 @@
+[package]
+name = "tunnix-core"
+version = "0.3.8"
+publish = false
+edition = "2024"
+rust-version = "1.99.1"
+autotests = false
+autobenches = false
+license = "MIT"
+description = "Protocol core of TunnixNode. Fork of shoes (https://github.com/cfal/shoes), MIT licensed."
+
+[lib]
+name = "shoes"
+crate-type = ["rlib"]
+
+[features]
+default = []
+ffi = []
+integration-tests = []
+optional-peer-tests = ["integration-tests"]
+
+[dependencies]
+aho-corasick = "1"
+anyhow = "1"
+async-trait = "*"
+aws-lc-rs = { version = "*", default-features = false }
+base64 = "*"
+blake2 = "0.11"
+blake3 = "*"
+bytes = "*"
+chrono = "*"
+dashmap = "*"
+digest = "*"
+etherparse = "*"
+futures = "*"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+ruzstd = "0.9.1"
+prost = "0.14.4"
+yaml-rust2 = { version = "0.13", default-features = false }
+h2 = "*"
+h3 = { version = "*", features = ["i-implement-a-third-party-backend-and-opt-into-breaking-changes"] }
+h3-quinn = "*"
+hickory-resolver = { version = "*", default-features = false, features = ["tokio", "tls-aws-lc-rs", "https-aws-lc-rs", "h3-aws-lc-rs"] }
+http = "*"
+httpdate = "1"
+http-body-util = "*"
+httparse = "*"
+hyper = { version = "*", features = ["client", "server", "http1", "http2"] }
+hyper-util = { version = "*", features = ["tokio", "server"] }
+hyper-tungstenite = "0.30.0"
+memory-stats = "1.2.0"
+indexmap = "*"
+instant-acme = { version = "=0.8.5", default-features = false, features = ["aws-lc-rs", "rcgen", "time", "x509-parser"] }
+ipnetwork = { version = "0.21", features = ["serde"] }
+libc = "*"
+log = { version = "*", features = ["std", "release_max_level_info"] }
+lru = "*"
+md-5 = "*"
+memchr = "*"
+mime_guess = "*"
+ml-kem = { version = "0.3.4", features = ["zeroize"] }
+# Version 9 needs a macOS watch-set handoff that does not exhaust FSEvents roots.
+notify = "8"
+# 0.13's futex_time64 probe triggers SIGSYS on 32-bit Android API 26-29.
+parking_lot = "0.12.5"
+percent-encoding = "*"
+quinn = { version = "*", default-features = false, features = ["log", "runtime-tokio", "rustls-aws-lc-rs"] }
+quinn-proto = { version = "0.11", default-features = false }
+rand = "0.10"
+rand_core = "0.10"
+rcgen = { version = "*", default-features = false, features = ["aws_lc_rs", "pem"] }
+rust-argon2 = "*"
+rustc-hash = "*"
+regex = { version = "1", default-features = false, features = ["std", "perf"] }
+regex-automata = { version = "0.4", default-features = false, features = ["std", "syntax", "meta", "perf"] }
+rustls = "=0.23.46"
+serde = { version = "*", features = ["derive", "std"] }
+serde_json = { version = "*", features = ["preserve_order"] }
+serde_yaml = "*"
+shake = "*"
+smoltcp = { version = "*", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-icmp", "auto-icmp-echo-reply", "socket-udp", "socket-tcp", "socket-tcp-cubic", "phy-tuntap_interface", "assembler-max-segment-count-32", "segmentation-offload"] }
+socket2 = { version = "*", features = ["all"] }
+sntpc = { version = "=0.11.0", default-features = false }
+subtle = "*"
+tendns = { version = "0.2", default-features = false }
+tokio = { version = "*", features = [
+    "fs",
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt-multi-thread",
+    "signal",
+    "sync",
+    "time",
+] }
+tokio-util = { version = "*", features = ["time", "io", "rt"] }
+tracing = { version = "0.1", default-features = false, features = ["release_max_level_info"] }
+tun = { version = "*", features = ["async"] }
+url = "*"
+uuid = "1"
+webpki-roots = { version = "*" }
+x509-parser = { version = "*", default-features = false, features = ["verify-aws"] }
+zeroize = "*"
+
+[dev-dependencies]
+tokio = { version = "*", features = ["test-util"] }
+rcgen = { version = "*", default-features = false, features = ["aws_lc_rs", "pem", "x509-parser"] }
+shoes-test-support = { path = "tests/support" }
+tempfile = "*"
+tokio-rustls = "*"
+
+[target.'cfg(unix)'.dependencies]
+gotatun = { version = "*", default-features = false, features = ["device", "aws-lc-rs"] }
+
+[target.'cfg(not(target_has_atomic = "64"))'.dependencies]
+portable-atomic = { version = "1", features = ["fallback"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+rtnetlink = "0.24"
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+nftables = "0.6.3"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+hickory-resolver = { version = "*", default-features = false, features = ["system-config"] }
+
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "*"
+jni = "0.22"
+ndk-sys = "*"

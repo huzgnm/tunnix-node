@@ -1,0 +1,7 @@
+/target
+/_ref
+/_test
+/_tools
+*.candidate.yaml
+.DS_Store
+/docs/research
