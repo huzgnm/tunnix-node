@@ -199,6 +199,12 @@ docker build -f docker/Dockerfile.source -t tunnix-node .
 Pushing a `v*` tag runs the release workflow, which publishes the archives and the
 `ghcr.io/huzgnm/tunnix-node` image.
 
+## Benchmarks
+
+[`bench/`](bench) contains scripts to compare TunnixNode with v2node, V2bX, XrayR and
+remnawave/node on the same server: memory, CPU, throughput, latency, concurrent connections,
+UDP and traffic accounting accuracy.
+
 ## Project layout
 
 | Path | Contents |
@@ -207,6 +213,7 @@ Pushing a `v*` tag runs the release workflow, which publishes the archives and t
 | `crates/core` | Protocol core, a fork of [shoes](https://github.com/cfal/shoes); TunnixNode changes are in `src/tunnix/` |
 | `scripts/install.sh` | Installer and the `tunnix` management command |
 | `scripts/dev` | Local test helpers (mock panel, mock Cloudflare API) |
+| `bench` | Benchmark scripts |
 
 ## Acknowledgements
 
