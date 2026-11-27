@@ -103,16 +103,15 @@ Raise the open-file limit on both machines before large `--conns` values (`ulimi
 
 ## Example
 
-TunnixNode 0.1.0 and Xray-core 26.11.9 as the server, VLESS + REALITY + Vision, one macOS
-host, downloads from speed.cloudflare.com, 1000 idle connections. Throughput figures are limited
-by the Internet link and are shown only to illustrate the report format.
+TunnixNode 0.1.1 and Xray-core 26.11.9 as the server, VLESS + REALITY + Vision, one macOS
+host, 1000 idle connections. Shown to illustrate the report format; measure on your own servers.
 
 | Metric | TunnixNode | Xray-core |
 |---|---:|---:|
-| Idle memory (MiB) | 20.7 | 36.3 |
-| Peak memory, multi-stream (MiB) | 23.3 | 40.5 |
-| Memory with 1000 idle connections (MiB) | 143.3 | 118.6 |
-| Memory per connection (KiB) | 125.5 | 86.8 |
-| CPU per Gbit/s (% of one core) | 52.7 | 174.4 |
-| Time to first byte, median (ms) | 281.0 | 246.9 |
-| UDP DNS answered | 30/30 | 30/30 |
+| Idle memory (MiB) | 20.8 | 36.4 |
+| Memory with 1000 idle connections (MiB) | 85.2 | 110.5 |
+| Memory per connection (KiB) | 62.2 | 71.0 |
+| Idle connections opened | 1000/1000 | 1000/1000 |
+
+Public speed-test endpoints answer HTTP 429 after repeated runs; use your own target server
+for throughput figures.

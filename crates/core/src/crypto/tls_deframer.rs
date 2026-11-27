@@ -69,7 +69,8 @@ enum DeframerState {
 impl TlsDeframer {
     pub fn new() -> Self {
         Self {
-            buffer: BytesMut::with_capacity(TLS_MAX_RECORD_SIZE),
+            // tunnix: grow on demand instead of reserving a full record per connection.
+            buffer: BytesMut::new(),
             state: DeframerState::ReadingHeader,
         }
     }
@@ -159,6 +160,10 @@ impl TlsDeframer {
                     // BytesMut::split_to() returns a Bytes object that shares the underlying
                     // buffer without copying, and advances the BytesMut past the split point.
                     let record = self.buffer.split_to(total_len).freeze();
+                    if self.buffer.is_empty() {
+                        // tunnix: release spare capacity so idle connections hold no buffer.
+                        self.buffer = BytesMut::new();
+                    }
 
                     // Reset state for next record
                     self.state = DeframerState::ReadingHeader;

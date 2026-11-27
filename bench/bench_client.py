@@ -359,6 +359,8 @@ def main():
                   "phases": {}}
         for phase in [p.strip() for p in args.phases.split(",") if p.strip()]:
             print(f"[{args.label}] {phase} ...", file=sys.stderr, flush=True)
+            if phase == "conns":
+                time.sleep(5)  # memory baseline for this phase
             start = time.time()
             if phase == "idle":
                 time.sleep(args.idle)

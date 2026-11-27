@@ -30,6 +30,25 @@ def window(rows, phase, skip=2.0):
     return [r for r in rows if phase["start"] + skip <= r[0] <= phase["end"]]
 
 
+def before(rows, phase, seconds=3.0):
+    """Samples in the last seconds before a phase starts (its baseline)."""
+    if not phase:
+        return []
+    return [r for r in rows if phase["start"] - seconds <= r[0] < phase["start"]]
+
+
+def per_conn(client, rows):
+    """Memory added per open connection, against the level just before the phase."""
+    phase = client["phases"].get("conns")
+    inside = window(rows, phase)
+    base = before(rows, phase)
+    if not phase or not inside or not base or not phase["opened"]:
+        return None
+    peak = max(r[1] for r in inside)
+    baseline = sum(r[1] for r in base) / len(base)
+    return (peak - baseline) / phase["opened"]
+
+
 def avg(values):
     return sum(values) / len(values) if values else None
 
@@ -64,9 +83,7 @@ def main():
         lambda c, m: fmt(mem(m, ph(c, "conns"), max)))
     add("Idle connections opened",
         lambda c, m: f"{ph(c, 'conns')['opened']}/{ph(c, 'conns')['target']}" if ph(c, "conns") else "-")
-    add("Memory per connection (KiB)", lambda c, m: fmt(
-        ((mem(m, ph(c, "conns"), max) or 0) - (mem(m, ph(c, "idle"), avg) or 0)) * 1024
-        / max(1, ph(c, "conns")["opened"]) if ph(c, "conns") and mem(m, ph(c, "conns"), max) else None))
+    add("Memory per connection (KiB)", lambda c, m: fmt(per_conn(c, m)))
     add("Single-stream throughput (Mbit/s)", lambda c, m: fmt(ph(c, "single")["mbps"] if ph(c, "single") else None))
     add("Multi-stream throughput (Mbit/s)", lambda c, m: fmt(ph(c, "multi")["mbps"] if ph(c, "multi") else None))
     add("CPU, multi-stream (% of one core)", lambda c, m: fmt(cpu(m, ph(c, "multi"))))

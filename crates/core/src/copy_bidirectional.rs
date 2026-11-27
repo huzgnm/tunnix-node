@@ -20,6 +20,34 @@ use crate::util::allocate_vec;
 const DEFAULT_BUF_SIZE: usize = 16384;
 pub(crate) const MAX_COPY_BYTES_PER_POLL: usize = 1024 * 1024;
 
+// tunnix: copy buffers are borrowed from a per-thread pool only while data is in
+// flight, so idle connections hold no copy buffers.
+const POOL_MAX: usize = 256;
+
+thread_local! {
+    static POOL: std::cell::RefCell<Vec<Box<[u8]>>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn take_buf(size: usize) -> Box<[u8]> {
+    if size == DEFAULT_BUF_SIZE
+        && let Some(buf) = POOL.with(|p| p.borrow_mut().pop())
+    {
+        return buf;
+    }
+    allocate_vec(size).into_boxed_slice()
+}
+
+fn give_buf(buf: Box<[u8]>) {
+    if buf.len() == DEFAULT_BUF_SIZE {
+        POOL.with(|p| {
+            let mut p = p.borrow_mut();
+            if p.len() < POOL_MAX {
+                p.push(buf);
+            }
+        });
+    }
+}
+
 #[derive(Debug)]
 struct CopyBuffer {
     read_done: bool,
@@ -28,7 +56,15 @@ struct CopyBuffer {
     start_index: usize,
     cache_length: usize,
     size: usize,
-    buf: Box<[u8]>,
+    buf: Option<Box<[u8]>>,
+}
+
+impl Drop for CopyBuffer {
+    fn drop(&mut self) {
+        if let Some(buf) = self.buf.take() {
+            give_buf(buf);
+        }
+    }
 }
 
 impl CopyBuffer {
@@ -38,7 +74,6 @@ impl CopyBuffer {
     }
 
     pub fn new(size: usize, need_initial_flush: bool) -> Self {
-        let buf = allocate_vec(size);
         Self {
             read_done: false,
             need_flush: need_initial_flush,
@@ -46,7 +81,17 @@ impl CopyBuffer {
             start_index: 0,
             cache_length: 0,
             size,
-            buf: buf.into_boxed_slice(),
+            buf: None,
+        }
+    }
+
+    /// Returns the buffer to the pool when it holds no pending data.
+    fn release_if_empty(&mut self) {
+        if self.cache_length == 0 {
+            self.start_index = 0;
+            if let Some(buf) = self.buf.take() {
+                give_buf(buf);
+            }
         }
     }
 
@@ -68,13 +113,34 @@ impl CopyBuffer {
             coop.made_progress();
         }
         let mut copied = 0;
+        let result = self.poll_copy_inner(cx, reader, writer, &mut copied, coop);
+        if !matches!(result, Poll::Ready(Err(_))) {
+            self.release_if_empty();
+        }
+        result
+    }
 
+    fn poll_copy_inner<R, W>(
+        &mut self,
+        cx: &mut Context<'_>,
+        mut reader: Pin<&mut R>,
+        mut writer: Pin<&mut W>,
+        copied: &mut usize,
+        coop: tokio::task::coop::RestoreOnPending,
+    ) -> Poll<io::Result<()>>
+    where
+        R: AsyncStream + ?Sized,
+        W: AsyncStream + ?Sized,
+    {
         loop {
             let mut read_pending = false;
             let mut write_pending = false;
 
             // Read as much as possible before writing. Some AsyncStream implementations
             // packetize each poll_write call individually, so this reduces the overhead.
+            if self.buf.is_none() && !self.read_done {
+                self.buf = Some(take_buf(self.size));
+            }
             while !self.read_done && self.cache_length < self.size {
                 let unused_start_index = (self.start_index + self.cache_length) % self.size;
                 let unused_end_index_exclusive = if unused_start_index < self.start_index {
@@ -84,8 +150,10 @@ impl CopyBuffer {
                 };
 
                 let me = &mut *self;
-                let mut buf =
-                    ReadBuf::new(&mut me.buf[unused_start_index..unused_end_index_exclusive]);
+                let mut buf = ReadBuf::new(
+                    &mut me.buf.as_mut().expect("copy buffer")
+                        [unused_start_index..unused_end_index_exclusive],
+                );
                 match reader.as_mut().poll_read(cx, &mut buf) {
                     Poll::Ready(val) => {
                         val?;
@@ -135,10 +203,11 @@ impl CopyBuffer {
                     (self.start_index + self.cache_length).min(self.size);
 
                 let me = &mut *self;
-                match writer
-                    .as_mut()
-                    .poll_write(cx, &me.buf[used_start_index..used_end_index_exclusive])
-                {
+                match writer.as_mut().poll_write(
+                    cx,
+                    &me.buf.as_ref().expect("copy buffer")
+                        [used_start_index..used_end_index_exclusive],
+                ) {
                     Poll::Ready(val) => {
                         let written = val?;
                         if written == 0 {
@@ -147,7 +216,7 @@ impl CopyBuffer {
                                 "write zero byte into writer",
                             )));
                         } else {
-                            copied += written;
+                            *copied += written;
                             self.cache_length -= written;
                             if self.cache_length == 0 {
                                 self.start_index = 0;
@@ -166,7 +235,7 @@ impl CopyBuffer {
             }
 
             // Complete the current chunk rather than splitting a protocol-sized record.
-            let quota_reached = copied >= MAX_COPY_BYTES_PER_POLL;
+            let quota_reached = *copied >= MAX_COPY_BYTES_PER_POLL;
             if self.need_flush && (read_pending || write_pending || self.read_done || quota_reached)
             {
                 ready!(writer.as_mut().poll_flush(cx))?;
