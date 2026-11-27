@@ -474,7 +474,8 @@ pub async fn start(
         crate::tcp::tcp_client_handler_factory::create_tcp_client_proxy_selector(
             rules.into_vec(),
             resolver.clone(),
-        )?,
+        )?
+        .with_dns_interception(resolver.clone(), super::dns_hijack()),
     );
     let mut handles = Vec::new();
     let mode = Arc::new(Mutex::new(Some(mode)));

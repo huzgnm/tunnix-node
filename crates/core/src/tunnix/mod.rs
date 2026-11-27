@@ -65,6 +65,17 @@ impl UuidAuth {
     }
 }
 
+static DNS_HIJACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// Answers client DNS (port 53) with the server's resolver, like v2node does.
+pub fn set_dns_hijack(enabled: bool) {
+    DNS_HIJACK.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub(crate) fn dns_hijack() -> bool {
+    DNS_HIJACK.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 static SALAMANDER: std::sync::LazyLock<
     parking_lot::RwLock<std::collections::HashMap<std::net::SocketAddr, String>>,
 > = std::sync::LazyLock::new(Default::default);

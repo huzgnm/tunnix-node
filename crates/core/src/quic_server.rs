@@ -218,7 +218,10 @@ pub async fn start_quic_servers(
     let quic_server_config = crate::certificates::quic_config(server_config, certificate_binding)?;
 
     let client_proxy_selector = Arc::new(
-        create_tcp_client_proxy_selector(rules.clone(), resolver.clone())?.with_sniff(sniff),
+        create_tcp_client_proxy_selector(rules.clone(), resolver.clone())?
+            .with_sniff(sniff)
+            // tunnix: client DNS is answered by the server's resolver.
+            .with_dns_interception(resolver.clone(), crate::tunnix::dns_hijack()),
     );
 
     let mut handles = vec![];

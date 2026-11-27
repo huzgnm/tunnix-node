@@ -119,6 +119,7 @@ fn main() {
 fn run_server(config_path: &std::path::Path) -> Result<()> {
     let config = config::Config::load(config_path)?;
     let _ = shoes::tunnix::init_logging(&config.log.level);
+    shoes::tunnix::set_dns_hijack(config.dns_hijack);
     info!(
         "TunnixNode {VERSION} (core {}) starting with {} node(s)",
         shoes::tunnix::core_version(),

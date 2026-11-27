@@ -154,6 +154,7 @@ configuration can be copied as is (`PanelType` defaults to `xiaoboard`).
 | `Nodes[].SpeedLimit` | Node-wide speed limit in Mbps, applied with per-user limits (default 0 = none) |
 | `Remnawave` | Remnawave mode; `NODE_PORT` / `SECRET_KEY` environment variables also work |
 | `AcmeEmail` | Optional ACME account contact |
+| `DnsHijack` | Answer client DNS queries (port 53) with the server's resolver, as v2node does (default `true`) |
 | `DataDir` | State directory (default `/var/lib/tunnix-node`) |
 
 ### TLS certificates
@@ -199,11 +200,35 @@ docker build -f docker/Dockerfile.source -t tunnix-node .
 Pushing a `v*` tag runs the release workflow, which publishes the archives and the
 `ghcr.io/huzgnm/tunnix-node` image.
 
-## Benchmarks
+## Performance
 
-[`bench/`](bench) contains scripts to compare TunnixNode with v2node, V2bX, XrayR and
-remnawave/node on the same server: memory, CPU, throughput, latency, concurrent connections,
-UDP and traffic accounting accuracy.
+Measured on 2026-11-27 with the scripts in [`bench/`](bench) on a 4 vCPU KVM server in Frankfurt
+(Ubuntu 24.04). All three nodes served the same VLESS + REALITY + Vision inbound to one test user.
+The client ran on the same host and downloaded from a server in the same data centre; each
+implementation was run twice and the results averaged.
+
+| Metric | TunnixNode 0.1.2 | v2node 0.4.7 | remnawave/node 3.4.6 |
+|---|---:|---:|---:|
+| Memory, idle (MiB) | **31** | 56 | 163 (Xray core: 38) |
+| Memory, 8-stream download (MiB) | **42** | 70 | 170 (Xray core: 44) |
+| Memory, 2000 idle connections (MiB) | **172** | 203 | 301 (Xray core: 175) |
+| Memory per connection (KiB) | 67 | 69 | 67 |
+| CPU per Gbit/s (% of one core) | **59** | 105 | 116 |
+| Throughput, 8 streams (Mbit/s) | 824 | 748 | 785 |
+| Time to first byte, median (ms) | 37 | 38 | 37 |
+| DNS query through the node, median (ms) | **0.35** | 0.55 | 2.2 |
+| Traffic recorded / bytes downloaded | 100.3 % | 100.3 % | 100.3 % |
+
+Notes:
+
+- v2node 0.4.7 embeds Xray 26.10.31; remnawave/node 3.4.6 runs Xray 26.11.9 (`rw-core`) next
+  to a Node.js control process (`rw-node`). Its memory is shown in total and for the Xray core alone.
+- Throughput was limited by the network path; all three reached similar rates.
+- DNS is answered by the server's resolver in TunnixNode and v2node (`DnsHijack`), and forwarded
+  to the requested server by remnawave/node.
+- Recorded traffic is the payload exchanged with destinations, matching Xray's accounting.
+
+To reproduce, follow [`bench/README.md`](bench/README.md).
 
 ## Project layout
 

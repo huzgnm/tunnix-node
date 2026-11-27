@@ -436,7 +436,13 @@ fn write_private(path: &Path, content: &str) -> Result<()> {
 }
 
 fn rules(info: &NodeInfo) -> Value {
-    let mut rules = vec![json!({"masks": BLOCKED_RANGES, "action": "block"})];
+    // TUNNIX_ALLOW_PRIVATE=1 lifts the private-range block (local testing only).
+    let allow_private = std::env::var("TUNNIX_ALLOW_PRIVATE").is_ok_and(|v| v == "1");
+    let mut rules = if allow_private {
+        Vec::new()
+    } else {
+        vec![json!({"masks": BLOCKED_RANGES, "action": "block"})]
+    };
     let mut blocked: Vec<String> = Vec::new();
     for route in &info.routes {
         match route.action.as_str() {

@@ -24,6 +24,10 @@ pub struct Config {
     /// Contact e-mail for ACME (optional).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub acme_email: Option<String>,
+    /// Answer client DNS queries (UDP/TCP port 53) with this server's resolver,
+    /// as v2node does. Default true.
+    #[serde(default = "default_true")]
+    pub dns_hijack: bool,
     /// Remnawave node mode (panel pushes config over mTLS).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remnawave: Option<crate::rw::RemnawaveConfig>,
@@ -88,6 +92,10 @@ pub struct NodeConfig {
     pub speed_limit: u32,
 }
 
+fn default_true() -> bool {
+    true
+}
+
 fn default_data_dir() -> PathBuf {
     PathBuf::from(DEFAULT_DATA_DIR)
 }
@@ -119,6 +127,7 @@ impl Config {
                 nodes: Vec::new(),
                 data_dir: default_data_dir(),
                 acme_email: None,
+                dns_hijack: true,
                 remnawave: None,
             }
         } else {
@@ -187,6 +196,7 @@ pub fn edit_nodes(
             nodes: Vec::new(),
             data_dir: default_data_dir(),
             acme_email: None,
+            dns_hijack: true,
             remnawave: None,
         }
     };

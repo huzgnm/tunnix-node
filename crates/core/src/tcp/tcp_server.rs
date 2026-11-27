@@ -279,6 +279,15 @@ pub(crate) async fn process_stream_with_permit<AS: AsyncStream + 'static>(
             };
             log::debug!("TCP setup completed for {}", routed.wire_destination);
 
+            // tunnix: bill the payload exchanged with the destination, as Xray does.
+            let meter = crate::tunnix::meter::current_bound();
+            if let Some(meter) = &meter {
+                client_stream = crate::tunnix::meter::payload_stream(client_stream, meter);
+                if let Some(data) = &early_data {
+                    meter.count_down(data.len());
+                }
+            }
+
             let flow = client_stream.flow().cloned();
             crate::control::tracked_stream::during_flow(
                 flow.as_deref(),
@@ -640,7 +649,10 @@ async fn start_tcp_servers(
     let tcp_config = tcp_settings.unwrap_or_else(TcpConfig::default);
 
     let client_proxy_selector = Arc::new(
-        create_tcp_client_proxy_selector(rules.clone(), resolver.clone())?.with_sniff(sniff),
+        create_tcp_client_proxy_selector(rules.clone(), resolver.clone())?
+            .with_sniff(sniff)
+            // tunnix: client DNS is answered by the server's resolver.
+            .with_dns_interception(resolver.clone(), crate::tunnix::dns_hijack()),
     );
 
     let mut handles = vec![];

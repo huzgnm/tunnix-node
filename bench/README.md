@@ -101,17 +101,9 @@ Phases are matched by wall-clock time, so the node server and the client must be
 
 Raise the open-file limit on both machines before large `--conns` values (`ulimit -n 65535`).
 
-## Example
+## Results
 
-TunnixNode 0.1.1 and Xray-core 26.11.9 as the server, VLESS + REALITY + Vision, one macOS
-host, 1000 idle connections. Shown to illustrate the report format; measure on your own servers.
-
-| Metric | TunnixNode | Xray-core |
-|---|---:|---:|
-| Idle memory (MiB) | 20.8 | 36.4 |
-| Memory with 1000 idle connections (MiB) | 85.2 | 110.5 |
-| Memory per connection (KiB) | 62.2 | 71.0 |
-| Idle connections opened | 1000/1000 | 1000/1000 |
+Published results are in the [Performance](../README.md#performance) section of the main README.
 
 Public speed-test endpoints answer HTTP 429 after repeated runs; use your own target server
 for throughput figures.

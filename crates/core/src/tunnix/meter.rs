@@ -24,6 +24,9 @@ use crate::async_stream::{AsyncPing, AsyncStream};
 pub struct ConnMeter {
     peer: Option<SocketAddr>,
     user: OnceLock<Arc<User>>,
+    /// Traffic is counted on the outbound side (payload), like Xray; the inbound
+    /// wrapper then only enforces limits.
+    payload_only: std::sync::atomic::AtomicBool,
 }
 
 impl ConnMeter {
@@ -31,6 +34,7 @@ impl ConnMeter {
         Arc::new(Self {
             peer,
             user: OnceLock::new(),
+            payload_only: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -56,6 +60,101 @@ impl ConnMeter {
 
     pub fn is_revoked(&self) -> bool {
         self.user.get().is_some_and(|u| u.is_revoked())
+    }
+
+    fn payload_only(&self) -> bool {
+        self.payload_only.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// The current connection's meter when a user is bound to it.
+pub fn current_bound() -> Option<Arc<ConnMeter>> {
+    METER
+        .try_with(Arc::clone)
+        .ok()
+        .filter(|m| m.user().is_some())
+}
+
+/// Counts the payload exchanged with the destination: reads are downlink,
+/// writes are uplink. Switches the connection's inbound meter to limit-only.
+pub fn payload_stream(
+    stream: Box<dyn AsyncStream>,
+    meter: &Arc<ConnMeter>,
+) -> Box<dyn AsyncStream> {
+    meter
+        .payload_only
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    Box::new(PayloadMeter {
+        inner: stream,
+        meter: meter.clone(),
+    })
+}
+
+struct PayloadMeter {
+    inner: Box<dyn AsyncStream>,
+    meter: Arc<ConnMeter>,
+}
+
+impl AsyncRead for PayloadMeter {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        let this = self.get_mut();
+        let before = buf.filled().len();
+        ready!(Pin::new(&mut this.inner).poll_read(cx, buf))?;
+        this.meter.count_down(buf.filled().len() - before);
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl AsyncWrite for PayloadMeter {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let this = self.get_mut();
+        let n = ready!(Pin::new(&mut this.inner).poll_write(cx, buf))?;
+        this.meter.count_up(n);
+        Poll::Ready(Ok(n))
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+}
+
+impl AsyncPing for PayloadMeter {
+    fn supports_ping(&self) -> bool {
+        self.inner.supports_ping()
+    }
+
+    fn poll_write_ping(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<bool>> {
+        Pin::new(&mut self.get_mut().inner).poll_write_ping(cx)
+    }
+}
+
+impl AsyncStream for PayloadMeter {
+    fn local_addr(&self) -> Option<SocketAddr> {
+        self.inner.local_addr()
+    }
+
+    fn peer_addr(&self) -> Option<SocketAddr> {
+        self.inner.peer_addr()
+    }
+
+    fn flow(&self) -> Option<&Arc<crate::control::flows::FlowEntry>> {
+        self.inner.flow()
+    }
+
+    fn preferred_write_size(&self) -> Option<std::num::NonZeroUsize> {
+        self.inner.preferred_write_size()
     }
 }
 
@@ -207,10 +306,13 @@ impl<S: AsyncRead + Unpin> AsyncRead for MeteredStream<S> {
         let before = buf.filled().len();
         ready!(Pin::new(&mut this.inner).poll_read(cx, buf))?;
         let n = buf.filled().len() - before;
+        let payload_only = this.meter.payload_only();
         if n > 0
             && let Some(user) = this.user()
         {
-            user.add_up(n as u64);
+            if !payload_only {
+                user.add_up(n as u64);
+            }
             if let Some(wait) = user.consume(n) {
                 this.read_delay = Some(Box::pin(tokio::time::sleep(wait)));
             }
@@ -229,10 +331,13 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for MeteredStream<S> {
         this.check_revoked()?;
         ready!(poll_delay(&mut this.write_delay, cx));
         let n = ready!(Pin::new(&mut this.inner).poll_write(cx, buf))?;
+        let payload_only = this.meter.payload_only();
         if n > 0
             && let Some(user) = this.user()
         {
-            user.add_down(n as u64);
+            if !payload_only {
+                user.add_down(n as u64);
+            }
             if let Some(wait) = user.consume(n) {
                 this.write_delay = Some(Box::pin(tokio::time::sleep(wait)));
             }
