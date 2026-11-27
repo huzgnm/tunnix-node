@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use log::{debug, error};
+use log::{debug, error, warn};
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
@@ -91,8 +91,13 @@ async fn run_tcp_server(
                 process_stream(stream, cloned_handler, cloned_resolver),
             )
             .await;
+            // tunnix: routine client disconnects at debug level, other failures as warnings.
             if let Err(e) = result {
-                error!("{}:{} finished with error: {:?}", addr.ip(), addr.port(), e);
+                if crate::tunnix::is_client_gone(&e) {
+                    debug!("{}:{} closed by client: {}", addr.ip(), addr.port(), e);
+                } else {
+                    warn!("{}:{} finished with error: {}", addr.ip(), addr.port(), e);
+                }
             } else {
                 debug!("{}:{} finished successfully", addr.ip(), addr.port());
             }
@@ -130,7 +135,12 @@ async fn run_unix_server(
         tasks.spawn(async move {
             let _permit = permit;
             if let Err(e) = process_stream(stream, cloned_handler, cloned_resolver).await {
-                error!("{addr:?} finished with error: {e:?}");
+                // tunnix: routine client disconnects at debug level, other failures as warnings.
+                if crate::tunnix::is_client_gone(&e) {
+                    debug!("{addr:?} closed by client: {e}");
+                } else {
+                    warn!("{addr:?} finished with error: {e}");
+                }
             } else {
                 debug!("{addr:?} finished successfully");
             }

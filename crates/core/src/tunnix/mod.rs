@@ -68,6 +68,21 @@ impl UuidAuth {
 static DNS_HIJACK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 /// Answers client DNS (port 53) with the server's resolver, like v2node does.
+/// Whether a finished connection failed only because the client went away (closed before
+/// sending a request, reset, timed out). Such endings are routine (abandoned pre-connections,
+/// latency probes, mobile handovers) and are logged at debug level, as Xray does.
+pub fn is_client_gone(e: &io::Error) -> bool {
+    use io::ErrorKind::*;
+    match e.kind() {
+        UnexpectedEof | ConnectionReset | BrokenPipe | NotConnected | TimedOut => true,
+        ConnectionAborted => {
+            let msg = e.to_string();
+            msg.contains("EOF") || msg.contains("reset by peer") || msg.contains("Broken pipe")
+        }
+        _ => false,
+    }
+}
+
 /// Whether `value` is a rule condition the core accepts, e.g. `{"domain_regex": ["^ads\\."]}`.
 pub fn is_valid_condition(value: &serde_json::Value) -> bool {
     crate::rules::Expression::from_config(value.clone())
